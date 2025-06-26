@@ -212,7 +212,7 @@ impl FundingContract {
         let current_distributed = Self::total_distributed(env.clone(), asset_id);
         env.storage().persistent().set(
             &DataKey::TotalDistributed(asset_id),
-            &(current_distributed + amount), // Use requested amount for now
+            &(current_distributed + amount),
         );
 
         // Update distribution count
@@ -255,7 +255,7 @@ impl FundingContract {
             env.storage()
                 .persistent()
                 .set(&DataKey::AssetFunds(asset_id), &(remaining_funds + dust));
-            
+
             // Update total distributed to reflect actual amount distributed
             let current_distributed = Self::total_distributed(env.clone(), asset_id);
             env.storage().persistent().set(

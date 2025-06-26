@@ -204,46 +204,46 @@ impl FractionalizationContract {
 
             total_minted += amount;
 
-            // Emitir evento por recipient
+            // Emit event per recipient
             env.events().publish(
                 (symbol_short!("mint_to"),),
                 (recipient.clone(), asset_id, amount),
             );
         }
 
-        // Atualizar supply total
+        // Update total supply
         let current_supply = Self::asset_supply(env.clone(), asset_id);
         env.storage().persistent().set(
             &DataKey::AssetSupply(asset_id),
             &(current_supply + total_minted),
         );
 
-        // Atualizar count de owners
+        // Update owner count
         env.storage()
             .persistent()
             .set(&DataKey::AssetOwnerCount(asset_id), &owner_count);
     }
 
     /// REFACTOR: function balanceOf(address account, uint256 id) external view returns (uint256)
-    /// Implementação direta - sem overhead das árvores do Solidity
+    /// Direct implementation - without the overhead of Solidity trees
     pub fn balance_of(env: Env, owner: Address, asset_id: u64) -> u64 {
-        // Acesso direto ao storage - muito mais simples que as árvores do RegistryNestedTree
+        // Direct storage access - much simpler than RegistryNestedTree trees
         env.storage()
             .persistent()
             .get(&DataKey::Balance(owner, asset_id))
-            .unwrap_or(0) // Retorna 0 se não existir (como no Solidity)
+            .unwrap_or(0) // Return 0 if doesn't exist (like in Solidity)
     }
 
-    /// REFACTOR: function balanceOfBatch() do ERC1155
-    /// Implementação mantida para compatibilidade
+    /// REFACTOR: function balanceOfBatch() from ERC1155
+    /// Implementation maintained for compatibility
     pub fn balance_of_batch(env: Env, owners: Vec<Address>, asset_ids: Vec<u64>) -> Vec<u64> {
-        // Validação similar ao Solidity
+        // Validation similar to Solidity
         if owners.len() != asset_ids.len() {
             panic!("Owners and asset_ids length mismatch");
         }
 
         let mut balances = Vec::new(&env);
-        // Iterar e obter balances individuais
+        // Iterate and get individual balances
         for i in 0..owners.len() {
             let owner = owners.get(i).unwrap();
             let asset_id = asset_ids.get(i).unwrap();
@@ -254,18 +254,18 @@ impl FractionalizationContract {
         balances
     }
 
-    /// NOVA FUNÇÃO: Transfer simples (owner transfere seus próprios tokens)
-    /// Simplificação vs safeTransferFrom do Solidity
+    /// NEW FUNCTION: Simple transfer (owner transfers their own tokens)
+    /// Simplification vs safeTransferFrom from Solidity
     pub fn transfer(env: Env, from: Address, to: Address, asset_id: u64, amount: u64) {
-        // Verificação de autorização obrigatória
+        // Mandatory authorization verification
         from.require_auth();
-        // Delegar para lógica interna
+        // Delegate to internal logic
         Self::transfer_internal(env, from, to, asset_id, amount);
     }
 
-    /// REFACTOR: function safeTransferFrom() do ERC1155
-    /// Simplificação: Remove callback de segurança (será implementado em layer superior)
-    /// Mantém: Sistema de allowances e autorização
+    /// REFACTOR: function safeTransferFrom() from ERC1155
+    /// Simplification: Removes security callback (will be implemented in upper layer)
+    /// Maintains: Allowance system and authorization
     pub fn transfer_from(
         env: Env,
         operator: Address,
@@ -274,15 +274,15 @@ impl FractionalizationContract {
         asset_id: u64,
         amount: u64,
     ) {
-        // === VERIFICAÇÃO DE AUTORIZAÇÃO ===
-        // Simplificação vs _verifyTransaction do AllowancesNestedMap
+        // === AUTHORIZATION VERIFICATION ===
+        // Simplification vs _verifyTransaction from AllowancesNestedMap
         if operator != from {
-            // Verificar se tem approval for all
+            // Check if has approval for all
             let approved_for_all =
                 Self::is_approved_for_all(env.clone(), from.clone(), operator.clone());
 
             if !approved_for_all {
-                // Verificar allowance específica para este token
+                // Check specific allowance for this token
                 let allowance: u64 = env
                     .storage()
                     .persistent()
@@ -297,26 +297,26 @@ impl FractionalizationContract {
                     panic!("Insufficient allowance");
                 }
 
-                // Decrementar allowance - similar ao updateAllowanceRecords do Solidity
+                // Decrement allowance - similar to updateAllowanceRecords from Solidity
                 env.storage().persistent().set(
                     &DataKey::TokenAllowance(from.clone(), operator.clone(), asset_id),
                     &(allowance - amount),
                 );
             }
         } else {
-            // Se operator == from, verificar autorização direta
+            // If operator == from, check direct authorization
             from.require_auth();
         }
 
-        // Executar transfer
+        // Execute transfer
         Self::transfer_internal(env, from, to, asset_id, amount);
     }
 
-    /// REFACTOR: function _transferFrom() dos vários registries do Solidity
-    /// Simplificação: Lógica unificada sem overhead das estruturas de árvore
-    /// Adição: Manutenção automática das listas de owners
+    /// REFACTOR: function _transferFrom() from various Solidity registries
+    /// Simplification: Unified logic without overhead of tree structures
+    /// Addition: Automatic maintenance of owner lists
     fn transfer_internal(env: Env, from: Address, to: Address, asset_id: u64, amount: u64) {
-        // Validações básicas
+        // Basic validations
         if amount == 0 {
             panic!("Cannot transfer 0 tokens");
         }
@@ -325,7 +325,7 @@ impl FractionalizationContract {
             panic!("Cannot transfer to self");
         }
 
-        // Obter balances atuais - acesso direto vs queries complexas do Solidity
+        // Get current balances - direct access vs complex queries from Solidity
         let from_balance = Self::balance_of(env.clone(), from.clone(), asset_id);
         let to_balance = Self::balance_of(env.clone(), to.clone(), asset_id);
 
@@ -333,11 +333,11 @@ impl FractionalizationContract {
             panic!("Insufficient balance");
         }
 
-        // Calcular novos balances
+        // Calculate new balances
         let new_from_balance = from_balance - amount;
         let new_to_balance = to_balance + amount;
 
-        // Atualizar balances no storage
+        // Update balances in storage
         env.storage()
             .persistent()
             .set(&DataKey::Balance(from.clone(), asset_id), &new_from_balance);
@@ -345,10 +345,10 @@ impl FractionalizationContract {
             .persistent()
             .set(&DataKey::Balance(to.clone(), asset_id), &new_to_balance);
 
-        // === TRACKING DE NOVA OWNERSHIP ===
-        // Funcionalidade nova vs Solidity - manutenção automática de listas
+        // === NEW OWNERSHIP TRACKING ===
+        // New functionality vs Solidity - automatic list maintenance
         if to_balance == 0 {
-            // Recipient é novo owner deste asset
+            // Recipient is new owner of this asset
             env.storage()
                 .persistent()
                 .set(&DataKey::AssetOwnerExists(asset_id, to.clone()), &true);
@@ -356,24 +356,24 @@ impl FractionalizationContract {
                 .persistent()
                 .set(&DataKey::OwnerAssetExists(to.clone(), asset_id), &true);
 
-            // Incrementar count de owners
+            // Increment owner count
             let owner_count = Self::get_asset_owner_count(env.clone(), asset_id);
             env.storage()
                 .persistent()
                 .set(&DataKey::AssetOwnerCount(asset_id), &(owner_count + 1));
 
-            // Adicionar às listas para queries eficientes
+            // Add to lists for efficient queries
             Self::add_owner_to_asset(&env, asset_id, to.clone());
             Self::add_asset_to_owner(&env, to.clone(), asset_id);
         }
 
-        // === CLEANUP DE OWNERSHIP ===
-        // Remover sender das listas se ficou com balance 0
+        // === OWNERSHIP CLEANUP ===
+        // Remove sender from lists if balance became 0
         if new_from_balance == 0 {
             Self::remove_owner_from_asset(&env, asset_id, from.clone());
             Self::remove_asset_from_owner(&env, from.clone(), asset_id);
 
-            // Decrementar count de owners
+            // Decrement owner count
             let owner_count = Self::get_asset_owner_count(env.clone(), asset_id);
             if owner_count > 0 {
                 env.storage()
@@ -382,15 +382,15 @@ impl FractionalizationContract {
             }
         }
 
-        // Emitir evento de transfer
+        // Emit transfer event
         env.events().publish(
             (symbol_short!("transfer"),),
             (from.clone(), to.clone(), asset_id, amount),
         );
     }
 
-    /// REFACTOR: function safeBatchTransferFrom() do ERC1155
-    /// Simplificação: Remove callback de segurança, mantém lógica de autorização
+    /// REFACTOR: function safeBatchTransferFrom() from ERC1155
+    /// Simplification: Removes security callback, maintains authorization logic
     pub fn batch_transfer_from(
         env: Env,
         operator: Address,
@@ -399,12 +399,12 @@ impl FractionalizationContract {
         asset_ids: Vec<u64>,
         amounts: Vec<u64>,
     ) {
-        // Validação de arrays
+        // Array validation
         if asset_ids.len() != amounts.len() {
             panic!("Asset IDs and amounts length mismatch");
         }
 
-        // Executar transfers individuais - cada um com suas próprias validações
+        // Execute individual transfers - each with their own validations
         for i in 0..asset_ids.len() {
             let asset_id = asset_ids.get(i).unwrap();
             let amount = amounts.get(i).unwrap();
@@ -419,25 +419,25 @@ impl FractionalizationContract {
         }
     }
 
-    /// REFACTOR: function setApprovalForAll() do ERC1155
-    /// Mantida funcionalidade completa para compatibilidade
+    /// REFACTOR: function setApprovalForAll() from ERC1155
+    /// Full functionality maintained for compatibility
     pub fn set_approval_for_all(env: Env, owner: Address, operator: Address, approved: bool) {
-        // Verificação de autorização
+        // Authorization verification
         owner.require_auth();
 
-        // Armazenar approval - storage direto vs nested mappings do Solidity
+        // Store approval - direct storage vs nested mappings from Solidity
         env.storage().persistent().set(
             &DataKey::OperatorApproval(owner.clone(), operator.clone()),
             &approved,
         );
 
-        // Emitir evento
+        // Emit event
         env.events()
             .publish((symbol_short!("approval"),), (owner, operator, approved));
     }
 
-    /// REFACTOR: function isApprovedForAll() do ERC1155
-    /// Implementação direta
+    /// REFACTOR: function isApprovedForAll() from ERC1155
+    /// Direct implementation
     pub fn is_approved_for_all(env: Env, owner: Address, operator: Address) -> bool {
         env.storage()
             .persistent()
@@ -445,26 +445,26 @@ impl FractionalizationContract {
             .unwrap_or(false)
     }
 
-    /// REFACTOR: function approval() do Solidity (AllowancesNestedMap)
-    /// Renomeado para approve para compatibilidade ERC20/ERC1155
+    /// REFACTOR: function approval() from Solidity (AllowancesNestedMap)
+    /// Renamed to approve for ERC20/ERC1155 compatibility
     pub fn approve(env: Env, owner: Address, operator: Address, asset_id: u64, amount: u64) {
         owner.require_auth();
 
-        // Armazenar allowance específica
+        // Store specific allowance
         env.storage().persistent().set(
             &DataKey::TokenAllowance(owner.clone(), operator.clone(), asset_id),
             &amount,
         );
 
-        // Emitir evento
+        // Emit event
         env.events().publish(
             (symbol_short!("approve"),),
             (owner, operator, asset_id, amount),
         );
     }
 
-    /// REFACTOR: function getAllowance() do AllowancesNestedMap
-    /// Renomeado para allowance para compatibilidade padrão
+    /// REFACTOR: function getAllowance() from AllowancesNestedMap
+    /// Renamed to allowance for standard compatibility
     pub fn allowance(env: Env, owner: Address, operator: Address, asset_id: u64) -> u64 {
         env.storage()
             .persistent()
@@ -473,7 +473,7 @@ impl FractionalizationContract {
     }
 
     /// REFACTOR: function assetSupply(uint256 assetId) external view returns (uint256)
-    /// Implementação direta vs cálculos complexos dos registries
+    /// Direct implementation vs complex calculations from registries
     pub fn asset_supply(env: Env, asset_id: u64) -> u64 {
         env.storage()
             .persistent()
@@ -481,8 +481,8 @@ impl FractionalizationContract {
             .unwrap_or(0)
     }
 
-    /// NOVA FUNÇÃO: Count de owners por asset
-    /// Substitui queries caras das estruturas de árvore do Solidity
+    /// NEW FUNCTION: Owner count per asset
+    /// Replaces expensive queries from Solidity tree structures
     pub fn get_asset_owner_count(env: Env, asset_id: u64) -> u32 {
         env.storage()
             .persistent()
@@ -490,8 +490,8 @@ impl FractionalizationContract {
             .unwrap_or(0)
     }
 
-    /// NOVA FUNÇÃO: Verificação rápida de ownership
-    /// Substitui iterações complexas do RegistryNestedTree
+    /// NEW FUNCTION: Fast ownership verification
+    /// Replaces complex iterations from RegistryNestedTree
     pub fn owns_asset(env: Env, owner: Address, asset_id: u64) -> bool {
         env.storage()
             .persistent()
@@ -499,8 +499,8 @@ impl FractionalizationContract {
             .unwrap_or(false)
     }
 
-    /// NOVA FUNÇÃO: Verificação se owner tem algum asset
-    /// Funcionalidade auxiliar para queries
+    /// NEW FUNCTION: Check if owner has any asset
+    /// Helper functionality for queries
     pub fn has_assets(env: Env, owner: Address, asset_id: u64) -> bool {
         env.storage()
             .persistent()
@@ -509,8 +509,8 @@ impl FractionalizationContract {
     }
 
     /// REFACTOR: function assetOwners(uint256 tokenId) external view returns (address[] memory)
-    /// Simplificação: Lista direta vs iteração complexa das árvores
-    /// Otimização: Mantida em sync automaticamente vs cálculo on-demand
+    /// Simplification: Direct list vs complex tree iteration
+    /// Optimization: Kept in sync automatically vs on-demand calculation
     pub fn asset_owners(env: Env, asset_id: u64) -> Vec<Address> {
         env.storage()
             .persistent()
@@ -519,7 +519,7 @@ impl FractionalizationContract {
     }
 
     /// REFACTOR: function addressAssets(address owner) external view returns (uint256[] memory)
-    /// Simplificação similar à função acima
+    /// Simplification similar to the function above
     pub fn owner_assets(env: Env, owner: Address) -> Vec<u64> {
         env.storage()
             .persistent()
@@ -527,8 +527,8 @@ impl FractionalizationContract {
             .unwrap_or(Vec::new(&env))
     }
 
-    /// NOVA FUNÇÃO: Próximo asset ID a ser atribuído
-    /// Funcionalidade auxiliar para front-ends
+    /// NEW FUNCTION: Next asset ID to be assigned
+    /// Helper functionality for front-ends
     pub fn next_asset_id(env: Env) -> u64 {
         env.storage()
             .instance()
@@ -536,8 +536,8 @@ impl FractionalizationContract {
             .unwrap_or(1)
     }
 
-    /// NOVA FUNÇÃO: Verificação de existência de asset
-    /// Substitui verificações complexas do Solidity
+    /// NEW FUNCTION: Asset existence verification
+    /// Replaces complex verifications from Solidity
     pub fn asset_exists(env: Env, asset_id: u64) -> bool {
         env.storage()
             .persistent()
@@ -545,17 +545,17 @@ impl FractionalizationContract {
     }
 
     /// REFACTOR: function setUri(uint256 _tokenId, string calldata uri_) public
-    /// Adição: Verificação de autorização (admin ou creator)
-    /// Mudança: Caller explícito vs msg.sender implícito
+    /// Addition: Authorization verification (admin or creator)
+    /// Change: Explicit caller vs implicit msg.sender
     pub fn set_asset_uri(env: Env, caller: Address, asset_id: u64, uri: String) {
         caller.require_auth();
 
-        // Verificar se asset existe
+        // Check if asset exists
         if !Self::asset_exists(env.clone(), asset_id) {
             panic!("Asset does not exist");
         }
 
-        // Verificação de autorização - apenas admin ou creator do asset
+        // Authorization verification - only admin or asset creator
         let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         let creator: Address = env
             .storage()
@@ -567,24 +567,24 @@ impl FractionalizationContract {
             panic!("Not authorized to set URI");
         }
 
-        // Armazenar URI
+        // Store URI
         env.storage()
             .persistent()
             .set(&DataKey::AssetURI(asset_id), &uri);
 
-        // Emitir evento
+        // Emit event
         env.events()
             .publish((symbol_short!("uri"),), (asset_id, uri));
     }
 
     /// REFACTOR: function uri(uint256 _tokenId) public view returns (string memory)
-    /// Implementação direta
+    /// Direct implementation
     pub fn asset_uri(env: Env, asset_id: u64) -> Option<String> {
         env.storage().persistent().get(&DataKey::AssetURI(asset_id))
     }
 
-    /// NOVA FUNÇÃO: URI de nível de contrato
-    /// Funcionalidade adicional para metadata global
+    /// NEW FUNCTION: Contract-level URI
+    /// Additional functionality for global metadata
     pub fn set_contract_uri(env: Env, caller: Address, uri: String) {
         Self::require_admin_auth(env.clone());
         caller.require_auth();
@@ -592,27 +592,27 @@ impl FractionalizationContract {
         env.storage().persistent().set(&DataKey::ContractURI, &uri);
     }
 
-    /// NOVA FUNÇÃO: Obter URI de contrato
+    /// NEW FUNCTION: Get contract URI
     pub fn contract_uri(env: Env) -> Option<String> {
         env.storage().persistent().get(&DataKey::ContractURI)
     }
 
     /// REFACTOR: function getAdmin() public view returns (address)
-    /// Implementação direta
+    /// Direct implementation
     pub fn get_admin(env: Env) -> Address {
         env.storage().instance().get(&DataKey::Admin).unwrap()
     }
 
-    /// NOVA FUNÇÃO: Obter creator de asset
-    /// Tracking adicional vs Solidity original
+    /// NEW FUNCTION: Get asset creator
+    /// Additional tracking vs original Solidity
     pub fn get_asset_creator(env: Env, asset_id: u64) -> Option<Address> {
         env.storage()
             .persistent()
             .get(&DataKey::AssetCreator(asset_id))
     }
 
-    /// NOVA FUNÇÃO: Transfer de role de admin
-    /// Funcionalidade de governança básica
+    /// NEW FUNCTION: Admin role transfer
+    /// Basic governance functionality
     pub fn transfer_admin(env: Env, current_admin: Address, new_admin: Address) {
         Self::require_admin_auth(env.clone());
         current_admin.require_auth();
@@ -623,19 +623,19 @@ impl FractionalizationContract {
             .publish((symbol_short!("admin"),), (current_admin, new_admin));
     }
 
-    /// REFACTOR: modifier onlyAdmin do Solidity
-    /// Convertido para função helper
+    /// REFACTOR: modifier onlyAdmin from Solidity
+    /// Converted to helper function
     fn require_admin_auth(env: Env) {
         let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         admin.require_auth();
     }
 
-    // === FUNÇÕES INTERNAS DE GESTÃO DE LISTAS ===
-    // ADIÇÃO NOVA: Substitui as estruturas complexas de árvore do RegistryNestedTree
-    // Permite queries eficientes para sistemas de funding e voting futuros
+    // === INTERNAL LIST MANAGEMENT FUNCTIONS ===
+    // NEW ADDITION: Replaces complex tree structures from RegistryNestedTree
+    // Enables efficient queries for future funding and voting systems
 
-    /// Adicionar owner à lista de owners de um asset
-    /// Mantém lista atualizada para queries rápidas
+    /// Add owner to asset's owner list
+    /// Keeps list updated for fast queries
     fn add_owner_to_asset(env: &Env, asset_id: u64, owner: Address) {
         let mut owners: Vec<Address> = env
             .storage()
@@ -643,7 +643,7 @@ impl FractionalizationContract {
             .get(&DataKey::AssetOwnersList(asset_id))
             .unwrap_or(Vec::new(env));
 
-        // Verificar se owner já está na lista (evitar duplicatas)
+        // Check if owner is already in list (avoid duplicates)
         let mut found = false;
         for i in 0..owners.len() {
             if owners.get(i).unwrap() == owner {
@@ -652,7 +652,7 @@ impl FractionalizationContract {
             }
         }
 
-        // Adicionar apenas se não existir
+        // Add only if doesn't exist
         if !found {
             owners.push_back(owner.clone());
             env.storage()
@@ -661,8 +661,8 @@ impl FractionalizationContract {
         }
     }
 
-    /// Remover owner da lista quando balance = 0
-    /// Manutenção automática vs manual cleanup do Solidity
+    /// Remove owner from list when balance = 0
+    /// Automatic maintenance vs manual cleanup from Solidity
     fn remove_owner_from_asset(env: &Env, asset_id: u64, owner: Address) {
         let owners: Vec<Address> = env
             .storage()
@@ -670,7 +670,7 @@ impl FractionalizationContract {
             .get(&DataKey::AssetOwnersList(asset_id))
             .unwrap_or(Vec::new(env));
 
-        // Filtrar owner a remover
+        // Filter out owner to remove
         let mut new_owners = Vec::new(env);
         for i in 0..owners.len() {
             let current_owner = owners.get(i).unwrap();
@@ -679,14 +679,14 @@ impl FractionalizationContract {
             }
         }
 
-        // Atualizar lista
+        // Update list
         env.storage()
             .persistent()
             .set(&DataKey::AssetOwnersList(asset_id), &new_owners);
     }
 
-    /// Adicionar asset à lista de assets de um owner
-    /// Funcionalidade simétrica para queries bidirecionais
+    /// Add asset to owner's asset list
+    /// Maintains list for fast queries- similar to bidirectional mapping in Solidity
     fn add_asset_to_owner(env: &Env, owner: Address, asset_id: u64) {
         let mut assets: Vec<u64> = env
             .storage()
@@ -694,7 +694,7 @@ impl FractionalizationContract {
             .get(&DataKey::OwnerAssetsList(owner.clone()))
             .unwrap_or(Vec::new(env));
 
-        // Verificar duplicatas
+        // verify duplicates
         let mut found = false;
         for i in 0..assets.len() {
             if assets.get(i).unwrap() == asset_id {
@@ -703,7 +703,7 @@ impl FractionalizationContract {
             }
         }
 
-        // Adicionar se novo
+        // add new
         if !found {
             assets.push_back(asset_id);
             env.storage()
@@ -712,8 +712,7 @@ impl FractionalizationContract {
         }
     }
 
-    /// Remover asset da lista de owner quando balance = 0
-    /// Cleanup automático para manter listas consistentes
+    /// Auto Cleanup: Remove asset from owner list when balance = 0
     fn remove_asset_from_owner(env: &Env, owner: Address, asset_id: u64) {
         let assets: Vec<u64> = env
             .storage()
@@ -721,7 +720,7 @@ impl FractionalizationContract {
             .get(&DataKey::OwnerAssetsList(owner.clone()))
             .unwrap_or(Vec::new(env));
 
-        // Filtrar asset a remover
+        // filter and remove
         let mut new_assets = Vec::new(env);
         for i in 0..assets.len() {
             let current_asset = assets.get(i).unwrap();
@@ -730,7 +729,7 @@ impl FractionalizationContract {
             }
         }
 
-        // Atualizar lista do owner
+        // update list
         env.storage()
             .persistent()
             .set(&DataKey::OwnerAssetsList(owner), &new_assets);
