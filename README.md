@@ -3,7 +3,6 @@
 🚨 **TESTNET ONLY** - This project is currently for testing purposes only. Do not use on mainnet.
 
 Koltena is a comprehensive platform that democratizes ownership of assets through sophisticated tokenization, trading, and governance mechanisms built on Stellar/Soroban.
-```
 
 Table of Contents
 - [Prerequisites](#prerequisites)
@@ -55,7 +54,7 @@ npm --version
 
 ### 1. Clone the Repository
 ```powershell
-git clone https://github.com/your-username/koltena-stellar.git
+git clone https://github.com/miew-koltena-stellar/stellar-contracts.git
 cd koltena-stellar
 ```
 
@@ -82,11 +81,12 @@ stellar keys fund test-admin --network testnet
 
 ## Contract Overview
 
-Koltena consists of three main smart contracts:
+Koltena consists of four main smart contracts:
 
-1. **Custom Assets Contract** (`contracts/fractcore/`): Core fractional NFT functionality
+1. **Fractionalization Contract** (`contracts/fractcore/`): Core fractional NFT functionality
 2. **Trading Contract** (`contracts/trading/`): Peer-to-peer trading system  
 3. **Funding Contract** (`contracts/funding/`): Fund distribution to token holders
+4. **Governance Contract** (`contracts/governance/`): In development, decision making polls with token-weight voting 
 
 ## Setup & Deployment
 
@@ -344,7 +344,7 @@ cd contracts/fractcore
 cargo test
 ```
 
-.
+```
 ├── contracts
 │   └── fractcore
 │       ├── src
