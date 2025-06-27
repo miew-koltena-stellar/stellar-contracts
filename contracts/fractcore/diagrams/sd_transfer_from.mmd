@@ -1,0 +1,115 @@
+sequenceDiagram
+    participant Operator as Operator
+    participant FRC as FractionalizationContract
+    participant Storage as Contract Storage
+    participant Events as Event System
+
+    Note over Operator, Events: Prerequisites: Valid operator, from/to addresses, sufficient balance
+
+    Operator->>+FRC: transfer_from(operator, from, to, asset_id, amount)
+    
+    Note over FRC: Step 1: AUTHORIZATION VERIFICATION LOGIC
+    FRC->>FRC: Check if operator == from (owner)
+    
+    alt Operator is Owner (operator == from)
+        Note over FRC: Direct owner transfer
+        FRC->>FRC: from.require_auth()
+        alt Not Authorized
+            FRC-->>Operator: panic!("Authorization required")
+        end
+    else Operator is NOT Owner (operator != from)
+        Note over FRC: Step 1a: Check "Approval For All" Permission
+        FRC->>Storage: Get OperatorApproval(from, operator)
+        Storage-->>FRC: approved_for_all (bool)
+        
+        alt Has "Approval For All"
+            Note over FRC: Proceed: Operator has approval
+        else NO "Approval For All"
+            Note over FRC: Step 1b: Check Specific Token Allowance
+            FRC->>Storage: Get TokenAllowance(from, operator, asset_id)
+            Storage-->>FRC: specific_allowance (u64)
+            
+            FRC->>FRC: Check specific_allowance >= amount
+            alt Insufficient Allowance
+                FRC-->>Operator: panic!("Insufficient allowance")
+            end
+            
+            Note over FRC: Step 1c: CONSUME ALLOWANCE (Security Critical)
+            rect rgb(200, 200, 200)
+                Note over FRC, Storage: Decrement allowance to prevent reuse
+                FRC->>FRC: new_allowance = specific_allowance - amount
+                FRC->>Storage: Set TokenAllowance(from, operator, asset_id) = new_allowance
+                Storage-->>FRC: Allowance updated
+            end
+        end
+    end
+
+    Note over FRC: Step 2: EXECUTE TRANSFER (Delegate to Internal Logic)
+    FRC->>FRC: transfer_internal(from, to, asset_id, amount)
+    
+    Note over FRC: Step 2a: Basic Transfer Validations
+    FRC->>FRC: Check amount > 0
+    alt Amount is 0
+        FRC-->>Operator: panic!("Cannot transfer 0 tokens")
+    end
+    
+    FRC->>FRC: Check from != to
+    alt Same address
+        FRC-->>Operator: panic!("Cannot transfer to self")
+    end
+
+    Note over FRC: Step 2b: Balance Verification and Update
+    FRC->>Storage: Get Balance(from, asset_id)
+    Storage-->>FRC: from_balance
+    FRC->>Storage: Get Balance(to, asset_id)
+    Storage-->>FRC: to_balance
+    
+    FRC->>FRC: Check from_balance >= amount
+    alt Insufficient Balance
+        FRC-->>Operator: panic!("Insufficient balance")
+    end
+    
+    FRC->>FRC: Calculate new_from_balance = from_balance - amount
+    FRC->>FRC: Calculate new_to_balance = to_balance + amount
+    
+    FRC->>Storage: Set Balance(from, asset_id) = new_from_balance
+    FRC->>Storage: Set Balance(to, asset_id) = new_to_balance
+
+    Note over FRC: Step 2c: AUTOMATIC OWNERSHIP TRACKING
+    rect rgb(200, 220, 220)
+        Note over FRC, Storage: Smart list management for efficient queries
+        
+        alt Recipient is New Owner (to_balance was 0)
+            Note over FRC: Add 'to' as new asset owner
+            FRC->>Storage: Set AssetOwnerExists(asset_id, to) = true
+            FRC->>Storage: Set OwnerAssetExists(to, asset_id) = true
+            
+            FRC->>Storage: Get AssetOwnerCount(asset_id)
+            Storage-->>FRC: current_owner_count
+            FRC->>FRC: new_owner_count = current_owner_count + 1
+            FRC->>Storage: Set AssetOwnerCount(asset_id) = new_owner_count
+            
+            FRC->>FRC: add_owner_to_asset(asset_id, to)
+            FRC->>FRC: add_asset_to_owner(to, asset_id)
+        end
+        
+        alt Sender No Longer Owner (new_from_balance == 0)
+            Note over FRC: Remove 'from' from owner lists
+            FRC->>FRC: remove_owner_from_asset(asset_id, from)
+            FRC->>FRC: remove_asset_from_owner(from, asset_id)
+            
+            FRC->>Storage: Get AssetOwnerCount(asset_id)
+            Storage-->>FRC: current_owner_count
+            FRC->>FRC: new_owner_count = max(0, current_owner_count - 1)
+            FRC->>Storage: Set AssetOwnerCount(asset_id) = new_owner_count
+        end
+    end
+
+    Note over FRC: Step 3: Emit Transfer Event
+    FRC->>Events: Emit "transfer" event
+    Note over Events: Event data: (from, to, asset_id, amount)
+    Events-->>FRC: Event published
+
+    FRC-->>-Operator: Transfer completed successfully
+
+    Note over Operator, Events: Result: Tokens transferred, allowance consumed, ownership lists updated

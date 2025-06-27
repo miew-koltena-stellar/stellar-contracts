@@ -1,0 +1,98 @@
+sequenceDiagram
+    participant Seller as Seller
+    participant TC as TradingContract
+    participant FRC as FractionalizationContract
+    participant Storage as Contract Storage
+    participant Events as Event System
+
+    Note over Seller, Events: Prerequisites: Asset exists, seller has tokens, seller auth
+
+    Seller->>+TC: confirm_sale(seller, buyer, asset_id, token_amount, price, duration_seconds)
+    
+    Note over TC: Step 1: Authorization Check
+    TC->>TC: seller.require_auth()
+    alt Not Authorized
+        TC-->>Seller: panic!("Authorization required")
+    end
+
+    Note over TC: Step 2: Basic Parameter Validations
+    TC->>TC: Check token_amount > 0
+    alt Token amount is 0
+        TC-->>Seller: panic!("Token amount must be > 0")
+    end
+    
+    TC->>TC: Check price > 0
+    alt Price is 0
+        TC-->>Seller: panic!("Price must be > 0")
+    end
+    
+    TC->>TC: Check seller != buyer
+    alt Same address
+        TC-->>Seller: panic!("Cannot trade with yourself")
+    end
+    
+    TC->>TC: Check MIN_SALE_DURATION <= duration <= MAX_SALE_DURATION
+    alt Invalid duration
+        TC-->>Seller: panic!("Duration must be between 1 hour and 1 week")
+    end
+
+    Note over TC: Step 3: Cross-Contract Asset Validation
+    TC->>+FRC: asset_exists(asset_id)
+    FRC->>Storage: Check AssetSupply(asset_id)
+    FRC-->>-TC: asset_exists result
+    alt Asset doesn't exist
+        TC-->>Seller: panic!("Asset does not exist")
+    end
+
+    Note over TC: Step 4: Seller Balance Verification
+    TC->>+FRC: balance_of(seller, asset_id)
+    FRC->>Storage: Get Balance(seller, asset_id)
+    FRC-->>-TC: seller_balance
+    TC->>TC: Check seller_balance >= token_amount
+    alt Insufficient balance
+        TC-->>Seller: panic!("Insufficient balance")
+    end
+
+    Note over TC: Step 5: Check for Existing Proposal
+    TC->>Storage: Check SaleProposal(seller, buyer, asset_id)
+    Storage-->>TC: proposal_exists
+    alt Proposal already exists
+        TC-->>Seller: panic!("Sale proposal already exists - withdraw first")
+    end
+
+    Note over TC: Step 6: Allowance Management (Security Critical)
+    TC->>TC: Get trading_contract_id = current_contract_address()
+    TC->>+FRC: allowance(seller, trading_contract_id, asset_id)
+    FRC->>Storage: Get TokenAllowance(seller, trading_contract_id, asset_id)
+    FRC-->>-TC: current_allowance
+    
+    TC->>TC: new_total_allowance = current_allowance + token_amount
+    
+    Note over TC: Step 6a: Grant Allowance (Atomic Trade Design)
+    TC->>+FRC: approve(seller, trading_contract_id, asset_id, new_total_allowance)
+    FRC->>Storage: Set TokenAllowance(seller, trading_contract_id, asset_id)
+    FRC->>Events: Emit "approve" event
+    FRC-->>-TC: Allowance granted
+
+    Note over TC: Step 7: Create Sale Proposal
+    TC->>TC: Create SaleProposal struct
+
+    TC->>Storage: Set SaleProposal(seller, buyer, asset_id) = proposal
+
+    Note over TC: Step 8: Update User Activity Lists
+    TC->>Storage: Get SellerSales(seller)
+    Storage-->>TC: current_seller_sales
+    TC->>TC: Add (buyer, asset_id) to seller_sales
+    TC->>Storage: Update SellerSales(seller)
+
+    TC->>Storage: Get BuyerOffers(buyer)
+    Storage-->>TC: current_buyer_offers
+    TC->>TC: Add (seller, asset_id) to buyer_offers
+    TC->>Storage: Update BuyerOffers(buyer)
+
+    Note over TC: Step 9: Emit Sale Confirmation Event
+    TC->>Events: Emit "sale_conf" event (seller, buyer, asset_id, token_amount, price)
+
+    TC-->>-Seller: Sale proposal created successfully
+
+    Note over Seller, Events: Result: Sale proposal active, allowance granted, awaiting buyer

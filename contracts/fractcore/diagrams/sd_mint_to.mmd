@@ -1,0 +1,98 @@
+sequenceDiagram
+    participant Admin as Admin
+    participant FRC as FractionalizationContract
+    participant Storage as Contract Storage
+    participant Events as Event System
+
+    Note over Admin, Events: Prerequisites: Asset exists (created via mint()), admin auth
+
+    Admin->>+FRC: mint_to(asset_id, recipients[], amounts[])
+    
+    Note over FRC: Step 1: Authorization Check
+    FRC->>FRC: require_admin_auth()
+    alt Not Admin
+        FRC-->>Admin: panic!("Only admin can perform this action")
+    end
+
+    Note over FRC: Step 2: Asset ID Validation
+    FRC->>FRC: Check asset_id != 0
+    alt Asset ID is 0
+        FRC-->>Admin: panic!("Asset ID cannot be 0 - use mint() to create new assets")
+    end
+
+    Note over FRC: Step 3: Asset Existence Check
+    FRC->>Storage: Check AssetSupply(asset_id) exists
+    Storage-->>FRC: asset_exists result
+    alt Asset doesn't exist
+        FRC-->>Admin: panic!("Asset does not exist")
+    end
+
+    Note over FRC: Step 4: Array Validations
+    FRC->>FRC: Check recipients.len() == amounts.len()
+    alt Length mismatch
+        FRC-->>Admin: panic!("Recipients and amounts length mismatch")
+    end
+    
+    FRC->>FRC: Check recipients.len() > 0
+    alt Empty arrays
+        FRC-->>Admin: panic!("No recipients specified")
+    end
+
+    Note over FRC: Step 5: Initialize Batch Processing
+    FRC->>Storage: Get AssetOwnerCount(asset_id)
+    Storage-->>FRC: current_owner_count
+    FRC->>FRC: Initialize total_minted = 0
+
+    Note over FRC: Step 6: Process Each Recipient
+    loop For each recipient in recipients[]
+        FRC->>FRC: recipient = recipients[i], amount = amounts[i]
+        
+        Note over FRC: Step 6a: Per-Recipient Validation
+        FRC->>FRC: Check amount > 0
+        alt Amount is 0
+            FRC-->>Admin: panic!("Cannot mint 0 tokens")
+        end
+
+        Note over FRC: Step 6b: Get Current Balance
+        FRC->>Storage: Get Balance(recipient, asset_id)
+        Storage-->>FRC: current_balance
+
+        Note over FRC: Step 6c: Update Balance
+        FRC->>FRC: new_balance = current_balance + amount
+        FRC->>Storage: Set Balance(recipient, asset_id) = new_balance
+
+        Note over FRC: Step 6d: New Owner Tracking
+        alt current_balance == 0 (New Owner)
+            Note over FRC: Add to ownership tracking
+            FRC->>Storage: Set AssetOwnerExists(asset_id, recipient) = true
+            FRC->>Storage: Set OwnerAssetExists(recipient, asset_id) = true
+            FRC->>FRC: owner_count += 1
+            
+            Note over FRC: Maintain owner lists for queries
+            FRC->>Storage: Get AssetOwnersList(asset_id)
+            Storage-->>FRC: current_owners_list
+            FRC->>FRC: Add recipient to owners_list (if not exists)
+            FRC->>Storage: Update AssetOwnersList(asset_id)
+            
+            FRC->>Storage: Get OwnerAssetsList(recipient)
+            Storage-->>FRC: recipient_assets_list
+            FRC->>FRC: Add asset_id to recipient_assets_list (if not exists)
+            FRC->>Storage: Update OwnerAssetsList(recipient)
+        end
+
+        Note over FRC: Step 6e: Update Counters & Emit Event
+        FRC->>FRC: total_minted += amount
+        FRC->>Events: Emit "mint_to" event (recipient, asset_id, amount)
+    end
+
+    Note over FRC: Step 7: Final Supply & Count Updates
+    FRC->>Storage: Get AssetSupply(asset_id)
+    Storage-->>FRC: current_supply
+    FRC->>FRC: new_supply = current_supply + total_minted
+    FRC->>Storage: Set AssetSupply(asset_id) = new_supply
+
+    FRC->>Storage: Set AssetOwnerCount(asset_id) = final_owner_count
+
+    FRC-->>-Admin: Success - All tokens minted
+
+    Note over Admin, Events: Result: Tokens added to existing asset, distributed to recipients

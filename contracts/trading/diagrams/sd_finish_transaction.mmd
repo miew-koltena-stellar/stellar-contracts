@@ -1,0 +1,133 @@
+sequenceDiagram
+    participant Buyer as Buyer
+    participant TC as TradingContract
+    participant FRC as FractionalizationContract
+    participant XLM as XLM Token Contract
+    participant Storage as Contract Storage
+    participant Events as Event System
+
+    Note over Buyer, Events: Prerequisites: Active proposal, buyer auth, sufficient funds/allowance
+
+    Buyer->>+TC: finish_transaction(buyer, seller, asset_id)
+    
+    Note over TC: Step 1: Authorization Check
+    TC->>TC: buyer.require_auth()
+    alt Not Authorized
+        TC-->>Buyer: panic!("Authorization required")
+    end
+
+    Note over TC: Step 2: Get & Validate Sale Proposal
+    TC->>Storage: Get SaleProposal(seller, buyer, asset_id)
+    Storage-->>TC: proposal
+    alt Proposal not found
+        TC-->>Buyer: panic!("Sale proposal not found")
+    end
+
+    TC->>TC: Check proposal.is_active
+    alt Not active
+        TC-->>Buyer: panic!("Sale proposal is not active")
+    end
+
+    TC->>TC: Check proposal.buyer == buyer
+    alt Wrong buyer
+        TC-->>Buyer: panic!("Not authorized buyer for this sale")
+    end
+
+    TC->>TC: Check timestamp <= proposal.expires_at
+    alt Expired
+        TC-->>Buyer: panic!("Sale proposal has expired")
+    end
+
+    Note over TC: Step 3: Cross-Contract Validations
+    TC->>TC: Get fnft_contract & trading_contract_id addresses
+
+    Note over TC: Step 3a: Verify Seller Token Balance
+    TC->>+FRC: balance_of(seller, asset_id)
+    FRC->>Storage: Get Balance(seller, asset_id)
+    FRC-->>-TC: seller_balance
+    TC->>TC: Check seller_balance >= proposal.token_amount
+    alt Insufficient seller balance
+        TC-->>Buyer: panic!("Seller has insufficient token balance")
+    end
+
+    Note over TC: Step 3b: Verify Buyer XLM Funds
+    TC->>+XLM: balance(buyer)
+    XLM->>Storage: Get buyer's XLM balance
+    XLM-->>-TC: buyer_xlm_balance
+    TC->>TC: Check buyer_xlm_balance >= proposal.price
+    alt Insufficient buyer funds
+        TC-->>Buyer: panic!("Buyer has insufficient XLM funds")
+    end
+
+    Note over TC: Step 3c: Verify Trading Contract Allowance
+    TC->>+FRC: allowance(seller, trading_contract_id, asset_id)
+    FRC->>Storage: Get TokenAllowance(seller, trading_contract_id, asset_id)
+    FRC-->>-TC: allowance
+    TC->>TC: Check allowance >= proposal.token_amount
+    alt Insufficient allowance
+        TC-->>Buyer: panic!("Insufficient allowance for token transfer")
+    end
+
+    Note over TC: Step 4: ATOMIC TRANSACTION BLOCK
+    rect rgb(200, 220, 220)
+        Note over TC, Events: All transfers must succeed or all fail
+
+        Note over TC: Step 4a: Transfer Tokens (Seller → Buyer)
+        TC->>+FRC: transfer_from(trading_contract_id, seller, buyer, asset_id, token_amount)
+        FRC->>Storage: Update Balance(seller, asset_id) -= token_amount
+        FRC->>Storage: Update Balance(buyer, asset_id) += token_amount
+        FRC->>Storage: Update ownership tracking & lists if needed
+        FRC->>Storage: Auto-reduce TokenAllowance (seller, trading_contract_id, asset_id)
+        FRC->>Events: Emit "transfer" event
+        FRC-->>-TC: Token transfer complete
+
+        Note over TC: Step 4b: Transfer Payment (Buyer → Seller)
+        TC->>TC: Check proposal.price
+        alt Price too large
+            TC-->>Buyer: panic!("Proposal price exceeds maximum allowable")
+        end
+        TC->>+XLM: transfer(buyer, seller, proposal.price)
+        XLM->>Storage: Update buyer's XLM balance -= proposal.price
+        XLM->>Storage: Update seller's XLM balance += proposal.price
+        XLM->>Events: Emit XLM transfer event
+        XLM-->>-TC: Payment transfer complete
+    end
+
+    Note over TC: Step 5: REENTRANCY PROTECTION - Immediate State Cleanup
+    rect rgb(220, 220, 220)
+        Note over TC, Storage: State cleared immediately to prevent reentrancy
+
+        Note over TC: Step 5a: Remove Sale Proposal
+        TC->>Storage: Remove SaleProposal(seller, buyer, asset_id)
+
+        Note over TC: Step 5b: Update Activity Lists
+        TC->>Storage: Get SellerSales(seller)
+        Storage-->>TC: seller_sales_list
+        TC->>TC: Remove (buyer, asset_id) from seller_sales_list
+        TC->>Storage: Update SellerSales(seller)
+
+        TC->>Storage: Get BuyerOffers(buyer)
+        Storage-->>TC: buyer_offers_list
+        TC->>TC: Remove (seller, asset_id) from buyer_offers_list
+        TC->>Storage: Update BuyerOffers(buyer)
+    end
+
+    Note over TC: Step 6: Record Trade History & Analytics
+    TC->>TC: Create TradeHistory struct from proposal
+    TC->>Storage: Get TradeCounter
+    Storage-->>TC: current_trade_count
+    TC->>TC: new_trade_id = current_trade_count + 1
+    TC->>Storage: Set TradeHistory(new_trade_id) = trade_history
+    TC->>Storage: Set TradeCounter = new_trade_id
+
+    TC->>Storage: Get AssetTrades(asset_id)
+    Storage-->>TC: asset_trades_list
+    TC->>TC: Add new_trade_id to asset_trades_list
+    TC->>Storage: Update AssetTrades(asset_id)
+
+    Note over TC: Step 7: Emit Final Trade Event
+    TC->>Events: Emit "trade" event (seller, buyer, asset_id, token_amount, price, trade_id)
+
+    TC-->>-Buyer: Trade completed successfully
+
+    Note over Buyer, Events: Result: Atomic swap complete - tokens & payment transferred

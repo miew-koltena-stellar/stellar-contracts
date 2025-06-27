@@ -1,0 +1,85 @@
+sequenceDiagram
+    participant Seller as Seller
+    participant TC as TradingContract
+    participant FRC as FractionalizationContract
+    participant Storage as Contract Storage
+    participant Events as Event System
+
+    Note over Seller, Events: Prerequisites: Active sale proposal exists, seller auth
+
+    Seller->>+TC: withdraw_sale(seller, buyer, asset_id)
+    
+    Note over TC: Step 1: Authorization Check
+    TC->>TC: seller.require_auth()
+    alt Not Authorized
+        TC-->>Seller: panic!("Authorization required")
+    end
+
+    Note over TC: Step 2: Get & Validate Sale Proposal
+    TC->>Storage: Get SaleProposal(seller, buyer, asset_id)
+    Storage-->>TC: proposal
+    alt Proposal not found
+        TC-->>Seller: panic!("Sale proposal not found")
+    end
+
+    TC->>TC: Check proposal.seller == seller
+    alt Wrong seller
+        TC-->>Seller: panic!("Only the seller can withdraw this proposal")
+    end
+
+    TC->>TC: Check proposal.is_active
+    alt Not active
+        TC-->>Seller: panic!("Sale proposal is not active")
+    end
+
+    Note over TC: Step 3: CRITICAL SECURITY - Allowance Management
+    TC->>TC: Get fnft_contract & trading_contract_id addresses
+
+    Note over TC: Step 3a: Get Current Allowance
+    TC->>+FRC: allowance(seller, trading_contract_id, asset_id)
+    FRC->>Storage: Get TokenAllowance(seller, trading_contract_id, asset_id)
+    FRC-->>-TC: current_allowance
+
+    Note over TC: Step 3b: Calculate Safe New Allowance
+    TC->>TC: new_allowance = max(0, current_allowance - proposal.token_amount)
+    Note over TC: Safety fallback prevents underflow
+
+    Note over TC: Step 3c: Reset Allowance (SECURITY CRITICAL)
+    rect rgb(200, 220, 220)
+        Note over TC, FRC: Production: Requires auth for allowance change
+        
+        TC->>TC: [PRODUCTION ONLY] seller.require_auth_for_args(...)
+        
+        TC->>+FRC: approve(seller, trading_contract_id, asset_id, new_allowance)
+        FRC->>Storage: Set TokenAllowance(seller, trading_contract_id, asset_id) = new_allowance
+        FRC-->>-TC: Allowance updated
+    end
+
+    Note over TC: Step 4: Remove Sale Proposal & Clean Lists
+    rect rgb(220, 220, 220)
+        Note over TC, Storage: Atomic cleanup to prevent inconsistent state
+
+        Note over TC: Step 4a: Remove Sale Proposal
+        TC->>Storage: Remove SaleProposal(seller, buyer, asset_id)
+
+        Note over TC: Step 4b: Update Seller's Active Sales List
+        TC->>Storage: Get SellerSales(seller)
+        Storage-->>TC: seller_sales_list
+        TC->>TC: Remove (buyer, asset_id) from seller_sales_list
+        TC->>Storage: Update SellerSales(seller)
+
+        Note over TC: Step 4c: Update Buyer's Offers List
+        TC->>Storage: Get BuyerOffers(buyer)
+        Storage-->>TC: buyer_offers_list
+        TC->>TC: Remove (seller, asset_id) from buyer_offers_list
+        TC->>Storage: Update BuyerOffers(buyer)
+    end
+
+    Note over TC: Step 5: Emit Withdrawal Event
+    TC->>Events: Emit "withdraw" event
+    Note over Events: Event data: (seller, buyer, asset_id, token_amount, price)
+    Events-->>TC: Event published
+
+    TC-->>-Seller: Sale withdrawn successfully
+
+    Note over Seller, Events: Result: Proposal cancelled, allowance safely reduced, lists cleaned

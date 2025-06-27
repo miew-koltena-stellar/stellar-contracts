@@ -1,0 +1,67 @@
+sequenceDiagram
+    participant Depositor as Depositor
+    participant FC as FundingContract
+    participant FRC as FractionalizationContract
+    participant XLM as XLM Token Contract (SAC)
+    participant Storage as Contract Storage
+    participant Events as Event System
+
+    Note over Depositor, Events: Prerequisites: Asset exists, depositor has XLM, depositor auth
+
+    Depositor->>+FC: deposit_funds(depositor, asset_id, amount)
+    
+    Note over FC: Step 1: Authorization Check
+    FC->>FC: depositor.require_auth()
+    alt Not Authorized
+        FC-->>Depositor: panic!("Authorization required")
+    end
+
+    Note over FC: Step 2: Amount Validation
+    FC->>FC: Check amount > 0
+    alt Amount is 0 or negative
+        FC-->>Depositor: panic!("Deposit amount must be > 0")
+    end
+
+    Note over FC: Step 3: Cross-Contract Asset Validation
+    FC->>FC: Get fnft_contract address from storage
+    FC->>+FRC: asset_exists(asset_id)
+    FRC->>Storage: Check AssetSupply(asset_id)
+    FRC-->>-FC: bool (asset exists)
+    alt Asset doesn't exist
+        FC-->>Depositor: panic!("Asset does not exist")
+    end
+
+    Note over FC: Step 4: XLM Token Transfer Setup
+    FC->>FC: Get xlm_token address from storage
+    FC->>FC: Create TokenClient for XLM contract
+    FC->>FC: Get current_contract_address()
+
+    Note over FC: Step 5: Execute XLM Transfer
+    FC->>+XLM: transfer(depositor, current_contract_address, amount)
+    
+    Note over XLM: Validations: Depositor balance >= amount, Authorization valid, Transfer not blocked
+    
+    XLM->>Storage: Update depositor balance (decrease)
+    XLM->>Storage: Update contract balance (increase)
+    XLM-->>-FC: Transfer successful
+    
+    alt Transfer fails
+        XLM-->>FC: panic!("Transfer failed")
+        FC-->>Depositor: panic!("XLM transfer failed")
+    end
+
+    Note over FC: Step 6: Update Asset Fund Tracking
+    FC->>Storage: Get AssetFunds(asset_id)
+    Storage-->>FC: current_funds
+    FC->>FC: Calculate new_funds = current_funds + amount
+    FC->>Storage: Set AssetFunds(asset_id) = new_funds
+    Storage-->>FC: Storage updated
+
+    Note over FC: Step 7: Emit Deposit Event
+    FC->>Events: Publish "deposit" event
+    Note over Events: Event data: (asset_id, depositor, amount)
+    Events-->>FC: Event published
+
+    FC-->>-Depositor: Deposit successful
+
+    Note over Depositor, Events: Result: XLM transferred to contract, funds tracked for asset
