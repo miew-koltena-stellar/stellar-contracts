@@ -73,7 +73,7 @@ npm --version
 
 ### 1. Clone the Repository
 ```powershell
-git clone https://github.com/miew-koltena-stellar/stellar-contracts.git
+git clone https://github.com/your-username/koltena-stellar.git
 cd koltena-stellar
 ```
 

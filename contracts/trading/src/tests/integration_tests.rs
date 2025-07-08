@@ -1,10 +1,7 @@
 #![cfg(test)]
 
 use crate::contract::*;
-use soroban_sdk::{
-    testutils::{Address as _},
-    token, Address, Env,
-};
+use soroban_sdk::{testutils::Address as _, token, Address, Env};
 
 // Import the FNFT contract for testing
 mod fnft {
@@ -110,7 +107,7 @@ fn test_complete_trading_flow() {
     assert_eq!(buyer_offers.get(0).unwrap(), (seller.clone(), asset_id));
 
     // Step 2: Buyer finishes transaction
-    trading_client.finish_transaction(&buyer, &seller, &asset_id);
+    trading_client.finish_transaction(&buyer, &seller, &asset_id, &token_amount, &price);
 
     // Verify tokens were transferred
     assert_eq!(fnft_client.balance_of(&seller, &asset_id), 900); // 1000 - 100
@@ -184,8 +181,8 @@ fn test_multiple_sales_same_seller() {
     assert_eq!(seller_sales.len(), 2);
 
     // Complete both transactions
-    trading_client.finish_transaction(&buyer1, &seller, &asset1);
-    trading_client.finish_transaction(&buyer2, &seller, &asset2);
+    trading_client.finish_transaction(&buyer1, &seller, &asset1, &100, &5000);
+    trading_client.finish_transaction(&buyer2, &seller, &asset2, &200, &10000);
 
     // Verify all completed
     assert_eq!(trading_client.get_trade_count(), 2);
@@ -233,14 +230,90 @@ fn test_multiple_buyers_same_asset() {
     assert!(trading_client.sale_exists(&seller, &buyer2, &asset_id));
 
     // Complete first transaction
-    trading_client.finish_transaction(&buyer1, &seller, &asset_id);
+    trading_client.finish_transaction(&buyer1, &seller, &asset_id, &100, &5000);
 
     // Second transaction should still work
-    trading_client.finish_transaction(&buyer2, &seller, &asset_id);
+    trading_client.finish_transaction(&buyer2, &seller, &asset_id, &200, &8000);
 
     // Verify final state
     assert_eq!(fnft_client.balance_of(&seller, &asset_id), 700); // 1000 - 100 - 200
     assert_eq!(fnft_client.balance_of(&buyer1, &asset_id), 100);
     assert_eq!(fnft_client.balance_of(&buyer2, &asset_id), 200);
     assert_eq!(xlm_client.balance(&seller), 13000); // 5000 + 8000
+}
+
+#[test]
+#[should_panic(expected = "Token amount mismatch")]
+fn test_buyer_protection_token_amount_mismatch() {
+    let (env, _admin, _fnft_contract_id, xlm_contract_id, trading_client, fnft_client, _xlm_client) =
+        setup();
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+
+    let asset_id = fnft_client.mint(&seller, &1000);
+    mint_xlm_for_user(&env, &xlm_contract_id, &buyer, 10000);
+
+    trading_client.confirm_sale(
+        &seller,
+        &buyer,
+        &asset_id,
+        &100,
+        &5000,
+        &DEFAULT_SALE_DURATION,
+    );
+
+    // This should panic because buyer expects 200 tokens but proposal has 100
+    trading_client.finish_transaction(&buyer, &seller, &asset_id, &200, &5000);
+}
+
+#[test]
+#[should_panic(expected = "Price mismatch")]
+fn test_buyer_protection_price_mismatch() {
+    let (env, _admin, _fnft_contract_id, xlm_contract_id, trading_client, fnft_client, _xlm_client) =
+        setup();
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+
+    let asset_id = fnft_client.mint(&seller, &1000);
+    mint_xlm_for_user(&env, &xlm_contract_id, &buyer, 10000);
+
+    trading_client.confirm_sale(
+        &seller,
+        &buyer,
+        &asset_id,
+        &100,
+        &5000,
+        &DEFAULT_SALE_DURATION,
+    );
+
+    // This should panic because buyer expects 1000 price but proposal has 5000
+    trading_client.finish_transaction(&buyer, &seller, &asset_id, &100, &1000);
+}
+
+#[test]
+fn test_buyer_protection_correct_terms_succeed() {
+    let (env, _admin, _fnft_contract_id, xlm_contract_id, trading_client, fnft_client, xlm_client) =
+        setup();
+    let seller = Address::generate(&env);
+    let buyer = Address::generate(&env);
+
+    let asset_id = fnft_client.mint(&seller, &1000);
+    mint_xlm_for_user(&env, &xlm_contract_id, &buyer, 10000);
+
+    trading_client.confirm_sale(
+        &seller,
+        &buyer,
+        &asset_id,
+        &100,
+        &5000,
+        &DEFAULT_SALE_DURATION,
+    );
+
+    // This should succeed because terms match exactly
+    trading_client.finish_transaction(&buyer, &seller, &asset_id, &100, &5000);
+
+    // Verify transaction completed successfully
+    assert_eq!(fnft_client.balance_of(&seller, &asset_id), 900);
+    assert_eq!(fnft_client.balance_of(&buyer, &asset_id), 100);
+    assert_eq!(xlm_client.balance(&seller), 5000);
 }

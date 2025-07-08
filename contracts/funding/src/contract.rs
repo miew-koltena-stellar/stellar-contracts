@@ -1,22 +1,41 @@
+use crate::methods::{admin, distribution, funds, initialization, management, queries};
 use soroban_sdk::{contract, contractimpl, Address, Env, String};
-use crate::methods::{admin, distribution, funds, initialization, queries};
 
 #[contract]
 pub struct FundingContract;
 
 #[contractimpl]
 impl FundingContract {
-    /// Initialize the funding contract
-    pub fn initialize(env: Env, admin: Address, fnft_contract: Address, xlm_token: Address) {
-        initialization::initialize(env, admin, fnft_contract, xlm_token);
+    /// TODO: Emergency withdraw from asset's SAC by Poll
+
+    pub fn initialize(env: Env, admin: Address, fnft_contract: Address) {
+        initialization::initialize(env, admin, fnft_contract);
     }
 
-    /// Deposit XLM funds for a specific asset
+    pub fn set_governance_contract(env: Env, admin: Address, governance_contract: Address) {
+        admin::set_governance_contract(env, admin, governance_contract);
+    }
+    /// Register SAC address for an asset
+    pub fn register_asset_sac(env: Env, caller: Address, asset_id: u64, sac_address: Address) {
+        management::register_asset_sac(env, caller, asset_id, sac_address);
+    }
+
+    /// Get the SAC address for an asset
+    pub fn get_asset_sac(env: Env, asset_id: u64) -> Option<Address> {
+        queries::get_asset_sac(env, asset_id)
+    }
+
+    /// Get asset ID from SAC address
+    pub fn get_asset_by_sac(env: Env, sac_address: Address) -> Option<u64> {
+        queries::get_asset_by_sac(env, sac_address)
+    }
+
+    /// Deposit funds to asset's SAC (with tracking)
     pub fn deposit_funds(env: Env, depositor: Address, asset_id: u64, amount: i128) {
         funds::deposit_funds(env, depositor, asset_id, amount);
     }
 
-    /// Distribute funds to asset owners (only admin/governance)
+    /// Distribute funds from asset's SAC to Asset Owners
     pub fn distribute_funds(
         env: Env,
         caller: Address,
@@ -27,7 +46,7 @@ impl FundingContract {
         distribution::distribute_funds(env, caller, asset_id, amount, description);
     }
 
-    /// Allow asset owners to directly distribute funds (democratic distribution)
+    /// Allow asset owners to distribute funds
     pub fn owner_distribute_funds(
         env: Env,
         caller: Address,
@@ -38,7 +57,7 @@ impl FundingContract {
         distribution::owner_distribute_funds(env, caller, asset_id, amount, description);
     }
 
-    /// Get total funds available for an asset
+    /// Get SAC balance for an asset
     pub fn asset_funds(env: Env, asset_id: u64) -> u128 {
         queries::asset_funds(env, asset_id)
     }
@@ -53,17 +72,10 @@ impl FundingContract {
         queries::get_distribution_count(env, asset_id)
     }
 
-    /// Get the FNFT contract address
     pub fn get_fnft_contract_address(env: Env) -> Address {
         queries::get_fnft_contract_address(env)
     }
 
-    /// Get the XLM token contract address
-    pub fn get_xlm_token_address(env: Env) -> Address {
-        queries::get_xlm_token_address(env)
-    }
-
-    /// Get the admin address
     pub fn get_admin(env: Env) -> Address {
         admin::get_admin(env)
     }
@@ -73,19 +85,7 @@ impl FundingContract {
         queries::can_distribute(env, caller, asset_id)
     }
 
-    /// Transfer admin role (only current admin)
     pub fn transfer_admin(env: Env, current_admin: Address, new_admin: Address) {
         admin::transfer_admin(env, current_admin, new_admin);
-    }
-
-    /// Emergency withdraw funds (only admin)
-    pub fn emergency_withdraw(
-        env: Env,
-        admin: Address,
-        asset_id: u64,
-        amount: u128,
-        reason: String,
-    ) {
-        admin::emergency_withdraw(env, admin, asset_id, amount, reason);
     }
 }

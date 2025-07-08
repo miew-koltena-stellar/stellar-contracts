@@ -309,7 +309,7 @@ fn test_finish_transaction_no_proposal() {
     let seller = Address::generate(&env);
     let buyer = Address::generate(&env);
 
-    trading_client.finish_transaction(&buyer, &seller, &999);
+    trading_client.finish_transaction(&buyer, &seller, &999, &100, &5000);
 }
 
 #[test]
@@ -338,7 +338,7 @@ fn test_finish_transaction_insufficient_xlm() {
         &5000,
         &DEFAULT_SALE_DURATION,
     );
-    trading_client.finish_transaction(&buyer, &seller, &asset_id);
+    trading_client.finish_transaction(&buyer, &seller, &asset_id, &100, &5000);
 }
 
 #[test]
@@ -374,7 +374,7 @@ fn test_finish_transaction_seller_insufficient_tokens() {
     fnft_client.transfer(&seller, &other, &asset_id, &950); // Now seller only has 50 tokens
 
     // Transaction should fail
-    trading_client.finish_transaction(&buyer, &seller, &asset_id);
+    trading_client.finish_transaction(&buyer, &seller, &asset_id, &100, &5000);
 }
 
 #[test]
@@ -434,7 +434,7 @@ fn test_exact_balance_transfer() {
         &5000,
         &DEFAULT_SALE_DURATION,
     );
-    trading_client.finish_transaction(&buyer, &seller, &asset_id);
+    trading_client.finish_transaction(&buyer, &seller, &asset_id, &100, &5000);
 
     // Verify seller has 0 tokens left
     assert_eq!(fnft_client.balance_of(&seller, &asset_id), 0);
@@ -559,7 +559,7 @@ fn test_finish_transaction_expired() {
     });
 
     // Should fail
-    trading_client.finish_transaction(&buyer, &seller, &asset_id);
+    trading_client.finish_transaction(&buyer, &seller, &asset_id, &100, &5000);
 }
 
 #[test]

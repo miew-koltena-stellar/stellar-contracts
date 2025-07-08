@@ -21,15 +21,13 @@ pub enum DataKey {
     // Ownership tracking
     // Replaces complex tree structures from RegistryNestedTree
     // Avoids unlimited Vec growth through simple boolean flags
-    AssetOwnerExists(u64, Address), // asset_id -> owner -> bool
-    OwnerAssetExists(Address, u64), // owner -> asset_id -> bool
-    AssetOwnerCount(u64),           // asset_id -> number_of_owners
-
-    // Funding distributions
-    // New addition - replaces complex tree queries from Solidity
-    // Enables efficient iteration for future funding/voting systems
-    AssetOwnersList(u64), // asset_id -> Vec<Address> (owners with balance > 0)
-    OwnerAssetsList(Address), // owner -> Vec<u64> (assets owned with balance > 0)
+    AssetOwnerExists(u64, Address),   // asset_id -> owner -> bool
+    OwnerAssetExists(Address, u64),   // owner -> asset_id -> bool
+    AssetOwnerCount(u64),             // asset_id -> number_of_owners
+    AssetOwnersPage(u64, u32),        // asset_id -> page_num -> Vec<Address>
+    AssetOwnerPageCount(u64),         // asset_id -> number_of_pages
+    AssetLastActivePage(u64),         // Hint: last page with space
+    AssetOwnerLocation(u64, Address), // Fast removal: owner -> page_num
 
     // Authorization system
     // Simplification of AllowancesNestedMap from Solidity

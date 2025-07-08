@@ -1,6 +1,5 @@
 #![no_std]
 
-// Module declarations
 pub mod contract;
 pub mod events;
 pub mod interfaces;

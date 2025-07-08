@@ -1,15 +1,20 @@
-use soroban_sdk::{symbol_short, Address, Env};
 use crate::storage::SaleProposal;
+use soroban_sdk::{symbol_short, Address, Env};
 
-/// Emit contract initialization event
-pub fn emit_init_event(env: &Env, admin: &Address, fnft_contract: &Address, xlm_contract: &Address) {
+/// contract initialization event
+pub fn emit_init_event(
+    env: &Env,
+    admin: &Address,
+    fnft_contract: &Address,
+    xlm_contract: &Address,
+) {
     env.events().publish(
         (symbol_short!("init"),),
         (admin.clone(), fnft_contract.clone(), xlm_contract.clone()),
     );
 }
 
-/// Emit sale proposal creation event
+/// sale proposal creation event
 pub fn emit_sale_event(env: &Env, proposal: &SaleProposal) {
     env.events().publish(
         (symbol_short!("sale"),),
@@ -23,7 +28,7 @@ pub fn emit_sale_event(env: &Env, proposal: &SaleProposal) {
     );
 }
 
-/// Emit trade completion event
+/// sale completion event
 pub fn emit_trade_event(env: &Env, proposal: &SaleProposal, trade_id: u32) {
     env.events().publish(
         (symbol_short!("trade"),),
@@ -38,7 +43,7 @@ pub fn emit_trade_event(env: &Env, proposal: &SaleProposal, trade_id: u32) {
     );
 }
 
-/// Emit sale withdrawal event
+/// sale withdrawal event
 pub fn emit_withdraw_event(env: &Env, seller: &Address, buyer: &Address, asset_id: u64) {
     env.events().publish(
         (symbol_short!("withdraw"),),
@@ -46,10 +51,8 @@ pub fn emit_withdraw_event(env: &Env, seller: &Address, buyer: &Address, asset_i
     );
 }
 
-/// Emit emergency allowance reset event
+/// emergency allowance reset event
 pub fn emit_emergency_reset_event(env: &Env, seller: &Address, asset_id: u64) {
-    env.events().publish(
-        (symbol_short!("reset"),),
-        (seller.clone(), asset_id),
-    );
+    env.events()
+        .publish((symbol_short!("reset"),), (seller.clone(), asset_id));
 }

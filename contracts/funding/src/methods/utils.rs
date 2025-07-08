@@ -1,7 +1,6 @@
-use soroban_sdk::{Address, Env};
 use crate::storage::DataKey;
+use soroban_sdk::{Address, Env};
 
-/// Get FNFT contract address from storage
 pub fn get_fnft_contract(env: &Env) -> Address {
     env.storage()
         .instance()
@@ -9,7 +8,6 @@ pub fn get_fnft_contract(env: &Env) -> Address {
         .unwrap()
 }
 
-/// Get XLM token contract address from storage
-pub fn get_xlm_token(env: &Env) -> Address {
-    env.storage().instance().get(&DataKey::XLMToken).unwrap()
+pub fn get_governance_contract(env: &Env) -> Option<Address> {
+    env.storage().instance().get(&DataKey::GovernanceContract)
 }

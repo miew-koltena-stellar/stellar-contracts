@@ -1,11 +1,10 @@
-use soroban_sdk::{Address, Env};
-use crate::storage::DataKey;
 use crate::events;
 use crate::interfaces::{FNFTClient, TokenClient};
-use crate::methods::{queries, utils};
+use crate::methods::utils;
+use crate::storage::DataKey;
+use soroban_sdk::{Address, Env};
 
-/// Deposit XLM funds for a specific asset
-/// The contract will hold the XLM and track it for the asset
+/// Deposit XLM funds to asset's SAC (with tracking)
 pub fn deposit_funds(env: Env, depositor: Address, asset_id: u64, amount: i128) {
     depositor.require_auth();
 
@@ -13,7 +12,6 @@ pub fn deposit_funds(env: Env, depositor: Address, asset_id: u64, amount: i128) 
         panic!("Deposit amount must be > 0");
     }
 
-    // Verify asset exists
     let fnft_contract = utils::get_fnft_contract(&env);
     let fnft_client = FNFTClient::new(&env, &fnft_contract);
 
@@ -21,20 +19,14 @@ pub fn deposit_funds(env: Env, depositor: Address, asset_id: u64, amount: i128) 
         panic!("Asset does not exist");
     }
 
-    // Get XLM token contract and transfer from depositor to this contract
-    let xlm_token_address = utils::get_xlm_token(&env);
-    let xlm_token = TokenClient::new(&env, &xlm_token_address);
+    let sac_address = env
+        .storage()
+        .persistent()
+        .get(&DataKey::AssetSAC(asset_id))
+        .expect("Asset must have a registered SAC to use funding features");
 
-    // Transfer XLM from depositor to this contract
-    xlm_token.transfer(&depositor, &env.current_contract_address(), &amount);
+    let sac_client = TokenClient::new(&env, &sac_address);
+    sac_client.transfer(&depositor, &sac_address, &amount);
 
-    // Update asset funds tracking
-    let current_funds = queries::asset_funds(env.clone(), asset_id);
-    env.storage().persistent().set(
-        &DataKey::AssetFunds(asset_id),
-        &(current_funds + amount as u128),
-    );
-
-    // Emit deposit event
     events::emit_deposit(&env, asset_id, depositor, amount);
 }

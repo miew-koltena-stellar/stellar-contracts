@@ -48,11 +48,13 @@ src/
 - Automatic asset ID assignment and tracking
 - Asset metadata support with URI storage
 
-### 3. **Efficient Ownership Tracking**
-- O(1) balance lookups for any owner/asset combination
-- Automatic cleanup of zero-balance holders
-- Efficient iteration over asset owners
-- Owner count tracking for analytics
+### 3. **Scalable Ownership Tracking** 🆕
+- **Unlimited owners per asset** with paginated storage (50 owners/page)
+- **O(1) operations** for ownership checks, additions, and removals
+- **Automatic cleanup** of zero-balance holders with efficient page management
+- **Memory efficient** fixed-size pages vs unlimited vector growth
+- **Fast iteration** over asset owners with optimized page hints
+- **Owner count tracking** for analytics and governance
 
 ### 4. **Approval & Transfer System**
 - Token-specific allowances for controlled transfers
@@ -165,7 +167,7 @@ let total = client.asset_supply(&property_asset_id);
 
 ## Storage Architecture
 
-The contract uses efficient key-value storage optimized for Soroban:
+The contract uses efficient key-value storage optimized for Soroban with a **scalable paginated ownership system**:
 
 ### Core Data
 - `Admin`: Contract administrator address
@@ -175,10 +177,24 @@ The contract uses efficient key-value storage optimized for Soroban:
 - `Balance(owner, asset_id)`: Token balance for each owner/asset pair
 - `AssetSupply(asset_id)`: Total token supply for each asset
 
-### Ownership Optimization
-- `AssetOwnerExists(asset_id, owner)`: Fast ownership checks
-- `AssetOwnersList(asset_id)`: List of current owners (auto-cleanup)
-- `AssetOwnerCount(asset_id)`: Number of owners for analytics
+### Paginated Ownership System 🆕
+**Scalable architecture for handling large numbers of asset owners:**
+
+- `AssetOwnerExists(asset_id, owner)`: Fast O(1) ownership verification
+- `OwnerAssetExists(owner, asset_id)`: Reverse ownership lookup
+- `AssetOwnerCount(asset_id)`: Total number of owners for analytics
+
+**Paginated Lists (handles unlimited owners):**
+- `AssetOwnersPage(asset_id, page_num)`: Paginated list of owners (50 per page)
+- `AssetOwnerPageCount(asset_id)`: Number of pages for this asset
+- `AssetOwnerLocation(asset_id, owner)`: Fast O(1) removal tracking
+- `AssetLastActivePage(asset_id)`: Optimization hint for new additions
+
+**Benefits:**
+- ✅ **Unlimited Scalability**: No more Vec growth limitations
+- ✅ **O(1) Operations**: Fast additions, removals, and lookups
+- ✅ **Memory Efficient**: Fixed-size pages vs unlimited vectors
+- ✅ **Auto-cleanup**: Automatic removal when balance reaches zero
 
 ### Authorization
 - `OperatorApproval(owner, operator)`: Approval for all tokens
@@ -246,7 +262,9 @@ for owner in owners {
 **🚀 Key Benefits Over EVM**
 - **Lower Gas Costs**: More efficient than Ethereum for batch operations
 - **Better Performance**: O(1) lookups vs nested mapping traversals
+- **Unlimited Scalability**: Paginated storage handles unlimited owners per asset
 - **Automatic Cleanup**: No need for manual owner list maintenance
+- **Memory Efficient**: Fixed-size pages prevent storage bloat
 - **Native Integration**: Built for Stellar ecosystem
 
 ## Possible Features
@@ -266,11 +284,16 @@ client.batch_transfer_from(
 ```
 
 ### Dynamic Ownership Tracking
-Automatic maintenance of owner lists without manual intervention:
+**Paginated architecture** for unlimited scalability with automatic maintenance:
 
 ```rust
-// When balance becomes 0, owner is automatically removed from asset_owners()
-// When balance becomes > 0, owner is automatically added to asset_owners()
+// When balance becomes 0, owner is automatically removed from paginated lists
+// When balance becomes > 0, owner is automatically added to appropriate page
+// System automatically manages page allocation and cleanup
+
+// Query owners efficiently even with thousands of holders
+let all_owners = client.asset_owners(&asset_id); // Aggregates all pages
+let owner_count = client.get_asset_owner_count(&asset_id); // O(1) lookup
 ```
 
 ### Metadata Management

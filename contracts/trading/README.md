@@ -89,9 +89,16 @@ Create a new sale proposal with specified terms that both parties must confirm.
 ![Confirm Sale Sequence Diagram](diagrams/conf_sale.png)
 
 ```rust
-pub fn finish_transaction(env: Env, buyer: Address, seller: Address, asset_id: u64)
+pub fn finish_transaction(
+    env: Env, 
+    buyer: Address, 
+    seller: Address, 
+    asset_id: u64,
+    expected_token_amount: u64,  
+    expected_price: u128         
+    )
 ```
-Complete a confirmed sale by executing the token-for-XLM swap.
+Complete a confirmed sale by executing the token-for-XLM swap with buyer protection against proposal tampering.
 
 ![Finish Transaction Sequence Diagram](diagrams/finish_Trans.png)
 
@@ -142,12 +149,14 @@ client.confirm_sale(
 
 ### 2. **Buyer Accepts**
 ```rust
-// Buyer completes the purchase
+// Buyer completes the purchase with expected terms for security
 // This transfers XLM to seller and tokens to buyer
 client.finish_transaction(
     &buyer_address,
     &seller_address,
-    &asset_id
+    &asset_id,
+    &100,           // expected_token_amount (security check)
+    &100000000      // expected_price (security check)
 );
 ```
 
@@ -205,8 +214,14 @@ trading_client.confirm_sale(
     &24             // 24 hours expiry
 );
 
-// Step 3: Buyer completes purchase
-trading_client.finish_transaction(&investor2, &investor1, &asset_id);
+// Step 3: Buyer completes purchase with security validation
+trading_client.finish_transaction(
+    &investor2,     // buyer
+    &investor1,     // seller
+    &asset_id,      // property tokens
+    &100,           // expected_token_amount (prevents tampering)
+    &100000000      // expected_price (prevents bait-and-switch)
+);
 
 // Result: 
 // - investor1 receives 1000 XLM
@@ -252,19 +267,25 @@ trading_client.withdraw_sale(&seller, &buyer, &asset_id);
 - Automatic verification of token ownership
 - Balance checks before allowing sales
 
-### 2. **Expiration Management**
+### 2. **Buyer Protection Against Tampering**
+- Buyers must specify expected terms when completing transactions
+- Prevents bait-and-switch attacks where sellers modify proposals
+- Guards against race conditions during proposal execution
+- Validates exact token amount and price match buyer's expectations
+
+### 3. **Expiration Management**
 - All sales have mandatory expiration times
 - Automatic cleanup of expired offers
 - Configurable duration limits (1 hour to 1 week)
 - Prevention of indefinite market clutter
 
-### 3. **State Validation**
+### 4. **State Validation**
 - Comprehensive input validation
 - Asset existence verification
 - Sufficient balance checks
 - Allowance verification before transfers
 
-### 4. **Emergency Functions**
+### 5. **Emergency Functions**
 - Admin can reset stuck allowances
 - Cleanup functions for expired sales
 - Emergency withdrawal capabilities
@@ -314,6 +335,8 @@ The contract includes comprehensive error handling:
 - `"Sale has expired"`: Attempting to complete expired sale
 - `"Unauthorized access"`: Wrong user for operation
 - `"Invalid duration"`: Sale duration outside allowed range
+- `"Token amount mismatch"`: Buyer's expected amount doesn't match proposal
+- `"Price mismatch"`: Buyer's expected price doesn't match proposal
 
 ## Performance Optimizations
 
@@ -364,9 +387,9 @@ for (buyer, price) in market_offers {
 Efficient handling of multiple trades:
 
 ```rust
-// Complete multiple trades in sequence
-for (seller, buyer, asset_id) in pending_trades {
-    trading_client.finish_transaction(&buyer, &seller, &asset_id);
+// Complete multiple trades in sequence with security validation
+for (seller, buyer, asset_id, amount, price) in pending_trades {
+    trading_client.finish_transaction(&buyer, &seller, &asset_id, &amount, &price);
 }
 ```
 
