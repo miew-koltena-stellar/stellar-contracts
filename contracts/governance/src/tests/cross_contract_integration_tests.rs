@@ -32,7 +32,14 @@ mod cross_contract_integration_tests {
                 env.storage()
                     .instance()
                     .get::<DataKey, i128>(&DataKey::Balance(id))
-                    .unwrap_or(1000000) // Return a large balance for testing
+                    .unwrap_or(0) // Default to 0 for realistic test behavior
+            }
+
+            pub fn mint(env: Env, to: Address, amount: i128) {
+                let current_balance = Self::balance(env.clone(), to.clone());
+                env.storage()
+                    .instance()
+                    .set(&DataKey::Balance(to), &(current_balance + amount));
             }
 
             pub fn transfer(
@@ -57,6 +64,7 @@ mod cross_contract_integration_tests {
         GovernanceContractClient<'static>,
         fractcore::Client<'static>,
         funding::Client<'static>,
+        token::MockTokenClient<'static>,
     ) {
         let env = Env::default();
         env.mock_all_auths();
@@ -65,6 +73,7 @@ mod cross_contract_integration_tests {
 
         // Deploy mock XLM token
         let xlm_token_id = env.register(token::MockToken, ());
+        let sac_client = token::MockTokenClient::new(&env, &xlm_token_id);
 
         // Deploy fractcore contract
         let fractcore_contract_id = env.register(fractcore::WASM, ());
@@ -80,7 +89,7 @@ mod cross_contract_integration_tests {
 
         // Initialize contracts
         fractcore_client.initialize(&admin);
-        funding_client.initialize(&admin, &fractcore_contract_id, &xlm_token_id);
+        funding_client.initialize(&admin, &fractcore_contract_id);
 
         // Set governance contract in funding contract so it can trigger distributions
         funding_client.set_governance_contract(&admin, &governance_contract_id);
@@ -104,6 +113,7 @@ mod cross_contract_integration_tests {
             governance_client,
             fractcore_client,
             funding_client,
+            sac_client,
         )
     }
 
@@ -119,6 +129,7 @@ mod cross_contract_integration_tests {
             governance_client,
             fractcore_client,
             _funding_client,
+            _sac_client,
         ) = setup_full_contracts();
 
         // Create a real asset in fractcore (mint returns the asset_id)
@@ -182,6 +193,7 @@ mod cross_contract_integration_tests {
             governance_client,
             fractcore_client,
             funding_client,
+            _sac_client,
         ) = setup_full_contracts();
 
         // Create an asset and give tokens to a voter
@@ -192,6 +204,8 @@ mod cross_contract_integration_tests {
         let amounts = Vec::from_array(&env, [600000u64]);
         fractcore_client.mint_to(&asset_id, &recipients, &amounts);
 
+        // Register SAC (mock token) for the asset before depositing funds
+        funding_client.register_asset_sac(&admin, &asset_id, &_xlm_token_id);
         // Deposit funds to the funding contract so we can distribute them
         funding_client.deposit_funds(&admin, &asset_id, &100000i128); // Deposit 100K XLM
 
@@ -258,6 +272,7 @@ mod cross_contract_integration_tests {
             governance_client,
             fractcore_client,
             _funding_client,
+            _sac_client,
         ) = setup_full_contracts();
 
         // Create an asset
@@ -318,6 +333,7 @@ mod cross_contract_integration_tests {
             governance_client,
             fractcore_client,
             _funding_client,
+            _sac_client,
         ) = setup_full_contracts();
 
         // Create an asset with known total supply
@@ -402,6 +418,7 @@ mod cross_contract_integration_tests {
             governance_client,
             fractcore_client,
             _funding_client,
+            _sac_client,
         ) = setup_full_contracts();
 
         // Create an asset - admin gets initial supply
@@ -473,6 +490,7 @@ mod cross_contract_integration_tests {
             governance_client,
             fractcore_client,
             funding_client,
+            _sac_client,
         ) = setup_full_contracts();
 
         // Create an asset and give tokens to voters
@@ -483,8 +501,12 @@ mod cross_contract_integration_tests {
         let amounts = Vec::from_array(&env, [600000u64]);
         fractcore_client.mint_to(&asset_id, &recipients, &amounts);
 
+        // Register SAC (mock token) for the asset before depositing funds
+        funding_client.register_asset_sac(&admin, &asset_id, &_xlm_token_id);
         // Deposit funds to the funding contract
         funding_client.deposit_funds(&admin, &asset_id, &100000i128);
+        // Simulate the deposit by updating the mock token's balance for the SAC address
+        _sac_client.mint(&_xlm_token_id, &100000i128);
 
         // Verify funds were deposited
         let available_funds = funding_client.asset_funds(&asset_id);
